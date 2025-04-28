@@ -1,0 +1,183 @@
+--ADVANCED SQL PROJECT 
+1. Customer Segmentation Analysis
+SELECT 
+    CASE 
+        WHEN age BETWEEN 18 AND 25 THEN '18-25'
+        WHEN age BETWEEN 26 AND 35 THEN '26-35'
+        WHEN age BETWEEN 36 AND 50 THEN '36-50'
+        ELSE '50+'
+    END AS age_group,
+    gender,
+    ROUND(AVG(total_sale), 2) AS avg_spend,
+    COUNT(DISTINCT customer_id) AS customers
+FROM Sales_Retail
+GROUP BY age_group, gender
+ORDER BY age_group, gender;
+
+2. Time-of-Day Performance Analysis
+
+SELECT 
+    CASE 
+        WHEN sale_time BETWEEN '06:00:00' AND '12:00:00' THEN 'Morning'
+        WHEN sale_time BETWEEN '12:01:00' AND '17:00:00' THEN 'Afternoon'
+        WHEN sale_time BETWEEN '17:01:00' AND '21:00:00' THEN 'Evening'
+        ELSE 'Late Night'
+    END AS day_part,
+    category,
+    SUM(total_sale) AS total_sales,
+    ROUND(SUM(total_sale)*100.0/SUM(SUM(total_sale)) OVER(), 2) AS percent_of_total
+FROM Sales_Retail
+GROUP BY day_part, category
+ORDER BY total_sales DESC;
+
+3. Customer Lifetime Value (CLV) Prediction
+
+WITH customer_metrics AS (
+    SELECT 
+        customer_id,
+        COUNT(DISTINCT sale_date) AS visit_frequency,
+        AVG(total_sale) AS avg_order_value,
+        MAX(sale_date) - MIN(sale_date) AS customer_tenure
+    FROM Sales_Retail
+    GROUP BY customer_id
+)
+SELECT 
+    customer_id,
+    ROUND(visit_frequency * avg_order_value * 
+          CASE 
+              WHEN customer_tenure > 180 THEN 12
+              WHEN customer_tenure > 30 THEN 6
+              ELSE 3
+          END, 2) AS predicted_clv
+FROM customer_metrics
+ORDER BY predicted_clv DESC
+LIMIT 100;
+
+4. Market Basket Analysis (Frequent Itemsets)
+
+WITH transaction_items AS (
+    SELECT 
+        transaction_id,
+        STRING_AGG(category, ', ' ORDER BY category) AS items
+    FROM Sales_Retail
+    GROUP BY transaction_id
+    HAVING COUNT(*) > 1
+)
+SELECT 
+    items,
+    COUNT(*) AS transaction_count,
+    ROUND(COUNT(*)*100.0/(SELECT COUNT(*) FROM transaction_items), 2) AS support_percentage
+FROM transaction_items
+GROUP BY items
+ORDER BY transaction_count DESC
+LIMIT 20;
+
+5. Price Elasticity Analysis
+
+SELECT 
+    category,
+    ROUND(AVG(quantity), 2) AS avg_quantity,
+    ROUND(AVG(price_per_unit), 2) AS avg_price,
+    ROUND((AVG(quantity) - LAG(AVG(quantity)) OVER(PARTITION BY category ORDER BY EXTRACT(MONTH FROM sale_date))) / 
+          NULLIF(LAG(AVG(quantity)) OVER(PARTITION BY category ORDER BY EXTRACT(MONTH FROM sale_date)), 0) * 100, 2) AS quantity_change_pct,
+    ROUND((AVG(price_per_unit) - LAG(AVG(price_per_unit)) OVER(PARTITION BY category ORDER BY EXTRACT(MONTH FROM sale_date))) / 
+          NULLIF(LAG(AVG(price_per_unit)) OVER(PARTITION BY category ORDER BY EXTRACT(MONTH FROM sale_date)), 0) * 100, 2) AS price_change_pct
+FROM Sales_Retail
+GROUP BY category, EXTRACT(MONTH FROM sale_date)
+ORDER BY category, EXTRACT(MONTH FROM sale_date);
+
+6. Customer Retention Analysis
+
+WITH cohort_analysis AS (
+    SELECT 
+        customer_id,
+        DATE_TRUNC('month', MIN(sale_date)) AS cohort_month,
+        DATE_TRUNC('month', sale_date) AS order_month,
+        EXTRACT(MONTH FROM AGE(DATE_TRUNC('month', sale_date), DATE_TRUNC('month', MIN(sale_date)))) AS month_number
+    FROM Sales_Retail
+    GROUP BY customer_id, DATE_TRUNC('month', sale_date)
+)
+SELECT 
+    cohort_month,
+    month_number,
+    COUNT(DISTINCT customer_id) AS customers,
+    ROUND(COUNT(DISTINCT customer_id)*100.0/MAX(COUNT(DISTINCT customer_id)) OVER(PARTITION BY cohort_month), 2) AS retention_rate
+FROM cohort_analysis
+GROUP BY cohort_month, month_number
+ORDER BY cohort_month, month_number;
+
+7. Customer Churn Prediction
+
+WITH customer_activity AS (
+    SELECT 
+        customer_id,
+        MAX(sale_date) AS last_purchase,
+        CURRENT_DATE - MAX(sale_date) AS days_since_purchase,
+        COUNT(*) AS total_orders,
+        AVG(total_sale) AS avg_order_value
+    FROM Sales_Retail
+    GROUP BY customer_id
+)
+SELECT 
+    customer_id,
+    last_purchase,
+    days_since_purchase,
+    CASE 
+        WHEN days_since_purchase > 90 THEN 'High Risk'
+        WHEN days_since_purchase > 60 THEN 'Medium Risk'
+        WHEN days_since_purchase > 30 THEN 'Low Risk'
+        ELSE 'Active'
+    END AS churn_risk,
+    CASE 
+        WHEN total_orders > 10 AND avg_order_value > 500 THEN 'Platinum'
+        WHEN total_orders > 5 AND avg_order_value > 200 THEN 'Gold'
+        WHEN total_orders > 2 THEN 'Silver'
+        ELSE 'Bronze'
+    END AS customer_tier
+FROM customer_activity
+ORDER BY days_since_purchase DESC;
+
+8. Promotion Impact Analysis
+
+WITH promotion_periods AS (
+    SELECT 
+        category,
+        sale_date,
+        total_sale,
+        CASE 
+            WHEN sale_date BETWEEN '2022-11-20' AND '2022-11-27' THEN 'Black Friday'
+            WHEN sale_date BETWEEN '2022-12-15' AND '2022-12-31' THEN 'Holiday Sale'
+            ELSE 'Regular'
+        END AS promotion_type
+    FROM Sales_Retail
+)
+SELECT 
+    category,
+    promotion_type,
+    ROUND(AVG(total_sale), 2) AS avg_sale,
+    SUM(total_sale) AS total_revenue,
+    COUNT(*) AS transactions,
+    ROUND(SUM(total_sale) / COUNT(*), 2) AS revenue_per_transaction
+FROM promotion_periods
+GROUP BY category, promotion_type
+ORDER BY category, promotion_type;
+
+9. Dynamic Pricing Optimization
+SELECT 
+    category,
+    EXTRACT(HOUR FROM sale_time) AS hour_of_day,
+    EXTRACT(DOW FROM sale_date) AS day_of_week,
+    ROUND(AVG(price_per_unit), 2) AS current_price,
+    ROUND(AVG(price_per_unit) * 
+          CASE 
+              WHEN EXTRACT(DOW FROM sale_date) IN (0,6) THEN 1.1
+              WHEN EXTRACT(HOUR FROM sale_time) BETWEEN 17 AND 20 THEN 1.05
+              ELSE 1.0
+          END, 2) AS recommended_price,
+    ROUND(AVG(quantity), 2) AS avg_quantity,
+    ROUND(AVG(total_sale), 2) AS avg_sale
+
+
+
+
+
